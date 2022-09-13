@@ -9,9 +9,12 @@ from multiprocessing.synchronize import Event as EventType
 from os import getpid
 from socket import socket
 from typing import Any, Awaitable, Callable, Optional
+from unittest import mock
+from unittest.mock import patch
 from weakref import WeakSet
 
 from .lifespan import Lifespan
+from .pausable_server import PausableServer
 from .statsd import StatsdLogger
 from .tcp_server import TCPServer
 from .udp_server import UDPServer
@@ -115,10 +118,10 @@ async def worker_serve(
     for sock in sockets.insecure_sockets:
         if config.workers > 1 and platform.system() == "Windows":
             sock = _share_socket(sock)
-
-        servers.append(
-            await asyncio.start_server(_server_callback, backlog=config.backlog, sock=sock)
-        )
+        with patch("asyncio.base_events.Server", new=PausableServer):
+            server_ = await asyncio.start_server(_server_callback, backlog=config.backlog, sock=sock)
+            servers.append(server_)
+            server_.set_max_connections(2)
         bind = repr_socket_addr(sock.family, sock.getsockname())
         await config.log.info(f"Running on http://{bind} (CTRL + C to quit)")
 
